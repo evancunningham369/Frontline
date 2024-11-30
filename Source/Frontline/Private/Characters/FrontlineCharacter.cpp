@@ -9,6 +9,7 @@
 #include "Components/InputComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "Camera/CameraComponent.h"
+#include "OnlineSubsystem.h"
 
 
 AFrontlineCharacter::AFrontlineCharacter()
@@ -33,6 +34,7 @@ AFrontlineCharacter::AFrontlineCharacter()
 
 	AutoPossessPlayer = EAutoReceiveInput::Player0;
 
+	IOnlineSubsystem* OnlineSubsystem;
 }
 
 void AFrontlineCharacter::BeginPlay()
