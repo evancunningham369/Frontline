@@ -10,9 +10,14 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "Camera/CameraComponent.h"
 #include "OnlineSubsystem.h"
+#include "OnlineSessionSettings.h"
+#include <Online/OnlineSessionNames.h>
 
 
-AFrontlineCharacter::AFrontlineCharacter()
+AFrontlineCharacter::AFrontlineCharacter():
+	CreateSessionCompleteDelegate(FOnCreateSessionCompleteDelegate::CreateUObject(this, &AFrontlineCharacter::OnCreateSessionComplete)),
+	FindSessionsCompleteDelegate(FOnFindSessionsCompleteDelegate::CreateUObject(this, &AFrontlineCharacter::OnFindSessionsComplete)),
+	JoinSessionCompleteDelegate(FOnJoinSessionCompleteDelegate::CreateUObject(this, &AFrontlineCharacter::OnJoinSessionComplete))
 {
 	PrimaryActorTick.bCanEverTick = true;
 	bUseControllerRotationPitch = false;
@@ -34,7 +39,21 @@ AFrontlineCharacter::AFrontlineCharacter()
 
 	AutoPossessPlayer = EAutoReceiveInput::Player0;
 
-	IOnlineSubsystem* OnlineSubsystem;
+	IOnlineSubsystem* OnlineSubsystem = IOnlineSubsystem::Get();
+	if (OnlineSubsystem)
+	{
+		OnlineSessionInterface = OnlineSubsystem->GetSessionInterface();
+
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(
+				-1,
+				15.f,
+				FColor::Blue,
+				FString::Printf(TEXT("Found subsystem %s"), *OnlineSubsystem->GetSubsystemName().ToString())
+			);
+		}
+	}
 }
 
 void AFrontlineCharacter::BeginPlay()
@@ -84,6 +103,7 @@ void AFrontlineCharacter::Jump()
 {
 	Super::Jump();
 }
+
 
 void AFrontlineCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
