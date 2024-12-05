@@ -25,6 +25,9 @@ class FRONTLINE_API AFrontlineCharacter : public ACharacter
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	UInputAction* JumpAction;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+	UInputAction* EquipAction;
 
 	UPROPERTY(VisibleAnywhere)
 	class USkeletalMeshComponent* CharacterMesh;
@@ -39,6 +42,7 @@ public:
 	AFrontlineCharacter();
 	virtual void Tick(float DeltaTime) override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 protected: 
 	virtual void BeginPlay() override;
@@ -48,4 +52,20 @@ protected:
 	void Look(const FInputActionValue& Value);
 
 	virtual void Jump() override;
+
+	void Equip();
+private:
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
+	class UWidgetComponent* OverheadWidget;
+
+	UPROPERTY(ReplicatedUsing = OnRep_OverlappingWeapon)
+	class AWeapon* OverlappingWeapon;
+
+	UFUNCTION()
+	void OnRep_OverlappingWeapon(AWeapon* LastWeapon);
+
+	UPROPERTY(VisibleAnywhere)
+	class UCombatComponent* Combat;
+public:
+	void SetOverlappingWeapon(AWeapon* Weapon);
 };

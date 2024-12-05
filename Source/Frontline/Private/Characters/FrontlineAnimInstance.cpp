@@ -24,5 +24,6 @@ void UFrontlineAnimInstance::NativeUpdateAnimation(float DeltaTime)
 	{
 		GroundSpeed = UKismetMathLibrary::VSizeXY(FrontlineCharacterMovement->Velocity);
 		IsFalling = FrontlineCharacterMovement->IsFalling();
+		bIsAccelerating = FrontlineCharacterMovement->GetCurrentAcceleration().Size() > 0.f ? true : false;
 	}
 }

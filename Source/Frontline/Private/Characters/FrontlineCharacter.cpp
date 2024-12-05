@@ -12,12 +12,13 @@
 #include "OnlineSubsystem.h"
 #include "OnlineSessionSettings.h"
 #include <Online/OnlineSessionNames.h>
+#include "Components/WidgetComponent.h"
+#include <Net/UnrealNetwork.h>
+#include "Weapon/Weapon.h"
+#include "FrontlineComponents/CombatComponent.h"
 
 
-AFrontlineCharacter::AFrontlineCharacter():
-	CreateSessionCompleteDelegate(FOnCreateSessionCompleteDelegate::CreateUObject(this, &AFrontlineCharacter::OnCreateSessionComplete)),
-	FindSessionsCompleteDelegate(FOnFindSessionsCompleteDelegate::CreateUObject(this, &AFrontlineCharacter::OnFindSessionsComplete)),
-	JoinSessionCompleteDelegate(FOnJoinSessionCompleteDelegate::CreateUObject(this, &AFrontlineCharacter::OnJoinSessionComplete))
+AFrontlineCharacter::AFrontlineCharacter()	
 {
 	PrimaryActorTick.bCanEverTick = true;
 	bUseControllerRotationPitch = false;
@@ -39,22 +40,52 @@ AFrontlineCharacter::AFrontlineCharacter():
 
 	AutoPossessPlayer = EAutoReceiveInput::Player0;
 
-	IOnlineSubsystem* OnlineSubsystem = IOnlineSubsystem::Get();
-	if (OnlineSubsystem)
-	{
-		OnlineSessionInterface = OnlineSubsystem->GetSessionInterface();
+	OverheadWidget = CreateDefaultSubobject<UWidgetComponent>(TEXT("OverheadWidget"));
+	OverheadWidget->SetupAttachment(GetRootComponent());
 
-		if (GEngine)
+	Combat = CreateDefaultSubobject<UCombatComponent>(TEXT("Combat Component"));
+	Combat->SetIsReplicated(true);
+}
+
+void AFrontlineCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME_CONDITION(AFrontlineCharacter, OverlappingWeapon, COND_OwnerOnly);
+}
+
+void AFrontlineCharacter::SetOverlappingWeapon(AWeapon* Weapon)
+{
+	if (IsLocallyControlled())
+	{
+		if (OverlappingWeapon)
 		{
-			GEngine->AddOnScreenDebugMessage(
-				-1,
-				15.f,
-				FColor::Blue,
-				FString::Printf(TEXT("Found subsystem %s"), *OnlineSubsystem->GetSubsystemName().ToString())
-			);
+			OverlappingWeapon->ShowPickupWidget(false);
+		}
+	}
+
+	OverlappingWeapon = Weapon;
+	if (IsLocallyControlled())
+	{
+		if (OverlappingWeapon)
+		{
+			OverlappingWeapon->ShowPickupWidget(true);
 		}
 	}
 }
+
+void AFrontlineCharacter::OnRep_OverlappingWeapon(AWeapon* LastWeapon)
+{
+	if (OverlappingWeapon)
+	{
+		OverlappingWeapon->ShowPickupWidget(true);
+	}
+	if (LastWeapon)
+	{
+		LastWeapon->ShowPickupWidget(false);
+	}
+}
+
 
 void AFrontlineCharacter::BeginPlay()
 {
@@ -72,9 +103,7 @@ void AFrontlineCharacter::BeginPlay()
 void AFrontlineCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
-
 }
-
 
 void AFrontlineCharacter::Move(const FInputActionValue& Value)
 {
@@ -104,6 +133,11 @@ void AFrontlineCharacter::Jump()
 	Super::Jump();
 }
 
+void AFrontlineCharacter::Equip()
+{
+
+}
+
 
 void AFrontlineCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
@@ -114,6 +148,7 @@ void AFrontlineCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInput
 		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &AFrontlineCharacter::Move);
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &AFrontlineCharacter::Look);
 		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Triggered, this, &AFrontlineCharacter::Jump);
+		EnhancedInputComponent->BindAction(EquipAction, ETriggerEvent::Started, this, &AFrontlineCharacter::Equip);
 	}
 
 }
