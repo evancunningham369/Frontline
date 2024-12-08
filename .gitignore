@@ -76,3 +76,8 @@ DerivedDataCache/*
 #Custom ignore
 AnimalVarietyPack/
 Levels/
+AnimStarterPack/
+Assets/
+FPS_Weapon_Bundle/
+UnrealCharacters/
+Mixamo/
