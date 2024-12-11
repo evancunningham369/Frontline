@@ -18,6 +18,7 @@
 #include "Weapon/Weapon.h"
 #include "FrontlineComponents/CombatComponent.h"
 #include "Kismet/KismetMathLibrary.h"
+#include "Characters/FrontlineAnimInstance.h"
 
 
 AFrontlineCharacter::AFrontlineCharacter()	
@@ -28,7 +29,7 @@ AFrontlineCharacter::AFrontlineCharacter()
 	bUseControllerRotationRoll = false;
 
 	GetCharacterMovement()->bOrientRotationToMovement = true;
-	GetCharacterMovement()->RotationRate = FRotator(0.f, 400.f, 0.f);
+	GetCharacterMovement()->RotationRate = FRotator(0.f, 850.f, 0.f);
 
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(GetMesh());
@@ -53,6 +54,8 @@ AFrontlineCharacter::AFrontlineCharacter()
 	GetMesh()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
 
 	TurningInPlace = ETurningInPlace::ETIP_NotTurning;
+	SetNetUpdateFrequency(66.f);
+	SetMinNetUpdateFrequency(33.f);
 }
 
 void AFrontlineCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -74,6 +77,7 @@ void AFrontlineCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInput
 		EnhancedInputComponent->BindAction(EquipAction, ETriggerEvent::Started, this, &AFrontlineCharacter::Equip);
 		EnhancedInputComponent->BindAction(CrouchAction, ETriggerEvent::Started, this, &AFrontlineCharacter::CrouchButtonPressed);
 		EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Triggered, this, &AFrontlineCharacter::Aim);
+		EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Triggered, this, &AFrontlineCharacter::Fire);
 	}
 
 }
@@ -122,6 +126,12 @@ AWeapon* AFrontlineCharacter::GetEquippedWeapon()
 {
 	if (Combat == nullptr) return nullptr;
 	return Combat->EquippedWeapon;
+}
+
+FVector AFrontlineCharacter::GetHitTarget() const
+{
+	if (Combat == nullptr) return FVector();
+	return Combat->HitTarget;
 }
 
 void AFrontlineCharacter::OnRep_OverlappingWeapon(AWeapon* LastWeapon)
@@ -182,7 +192,15 @@ void AFrontlineCharacter::Look(const FInputActionValue& Value)
 
 void AFrontlineCharacter::Jump()
 {
-	Super::Jump();
+
+	if (bIsCrouched)
+	{
+		UnCrouch();
+	}
+	else
+	{
+		Super::Jump();
+	}
 }
 
 void AFrontlineCharacter::CrouchButtonPressed()
@@ -217,6 +235,28 @@ void AFrontlineCharacter::Aim(const FInputActionValue& Value)
 	if (Combat)
 	{
 		Combat->SetAiming(Value.Get<bool>());
+	}
+}
+
+void AFrontlineCharacter::Fire(const FInputActionValue& Value)
+{
+	if (Combat)
+	{
+		Combat->FireWeapon(Value.Get<bool>());
+	}
+}
+
+void AFrontlineCharacter::PlayFireMontage(bool bAiming)
+{
+	if (Combat == nullptr || Combat->EquippedWeapon == nullptr) return;
+
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && FireWeaponMontage)
+	{
+		AnimInstance->Montage_Play(FireWeaponMontage);
+		FName SectionName;
+		SectionName = bAiming ? FName("RifleHip") : FName("RifleIronsights");
+		AnimInstance->Montage_JumpToSection(SectionName);
 	}
 }
 

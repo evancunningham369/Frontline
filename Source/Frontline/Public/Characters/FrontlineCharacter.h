@@ -35,6 +35,9 @@ class FRONTLINE_API AFrontlineCharacter : public ACharacter
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	UInputAction* AimAction;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+	UInputAction* FireAction;
 
 	UPROPERTY(VisibleAnywhere)
 	class USpringArmComponent* CameraBoom;
@@ -48,6 +51,7 @@ public:
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void PostInitializeComponents() override;
+	void PlayFireMontage(bool bAiming);
 protected: 
 	virtual void BeginPlay() override;
 
@@ -64,6 +68,9 @@ protected:
 	void Aim(const FInputActionValue& Value);
 
 	void AimOffset(float DeltaTime);
+
+	void Fire(const FInputActionValue& Value);
+
 private:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
 	class UWidgetComponent* OverheadWidget;
@@ -88,6 +95,9 @@ private:
 	ETurningInPlace TurningInPlace;
 
 	void TurnInPlace(float DeltaTime);
+
+	UPROPERTY(EditAnywhere, Category = "Combat")
+	class UAnimMontage* FireWeaponMontage;
 public:
 	void SetOverlappingWeapon(AWeapon* Weapon);
 	bool IsWeaponEquipped();
@@ -96,4 +106,6 @@ public:
 	FORCEINLINE float GetAO_Pitch() const { return AO_Pitch; }
 	AWeapon* GetEquippedWeapon();
 	FORCEINLINE ETurningInPlace GetTurningInPlace() const { return TurningInPlace; }
+	FVector GetHitTarget() const;
+	FORCEINLINE UCameraComponent* GetFollowCamera() const { return FollowCamera; }
 };
