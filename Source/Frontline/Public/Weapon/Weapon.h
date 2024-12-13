@@ -27,6 +27,7 @@ public:
 	void ShowPickupWidget(bool bShowWidget);
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void Fire(const FVector& HitTarget);
+	void Dropped();
 
 	/*
 	* Textures for the weapon crosshairs
@@ -45,6 +46,17 @@ public:
 
 	UPROPERTY(EditAnywhere, Category = "Crosshairs")
 	UTexture2D* CrosshairsBottom;
+
+	/*
+	* Automatic Fire
+	*/
+
+	UPROPERTY(EditAnywhere, Category = "Combat")
+	float FireDelay = .15f;
+
+	UPROPERTY(EditAnywhere, Category = "Combat")
+	bool bAutomatic = true;
+
 protected:
 	virtual void BeginPlay() override;
 

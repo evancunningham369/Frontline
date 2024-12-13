@@ -31,6 +31,7 @@ void UFrontlineAnimInstance::NativeUpdateAnimation(float DeltaTime)
 		bIsCrouched = FrontlineCharacter->bIsCrouched;
 		bAiming = FrontlineCharacter->IsAiming();
 		TurningInPlace = FrontlineCharacter->GetTurningInPlace();
+		bElimmed = FrontlineCharacter->IsElimmed();
 
 		// Offset yaw for strafing
 		FRotator AimRotation = FrontlineCharacter->GetBaseAimRotation();
@@ -63,7 +64,8 @@ void UFrontlineAnimInstance::NativeUpdateAnimation(float DeltaTime)
 			{
 				bLocallyControlled = true;
 				FTransform RightHandTransform = FrontlineCharacter->GetMesh()->GetSocketTransform(FName("Hand_R"), ERelativeTransformSpace::RTS_World);
-				RightHandRotation = UKismetMathLibrary::FindLookAtRotation(RightHandTransform.GetLocation(), RightHandTransform.GetLocation() + (RightHandTransform.GetLocation() - FrontlineCharacter->GetHitTarget()) );
+				FRotator LookAtRotation = UKismetMathLibrary::FindLookAtRotation(RightHandTransform.GetLocation(), RightHandTransform.GetLocation() + (RightHandTransform.GetLocation() - FrontlineCharacter->GetHitTarget()));
+				RightHandRotation = FMath::RInterpTo(RightHandRotation, LookAtRotation, DeltaTime, 30.f);
 			}
 
 			/*FTransform MuzzleTipTransform = EquippedWeapon->GetWeaponMesh()->GetSocketTransform(FName("MuzzleFlash"), ERelativeTransformSpace::RTS_World);

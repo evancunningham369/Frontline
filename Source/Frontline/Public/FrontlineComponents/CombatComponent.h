@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include <HUD/FrontlineHUD.h>
 #include "CombatComponent.generated.h"
 
 #define TRACE_LENGTH 80000.f
@@ -67,6 +68,10 @@ private:
 
 	float CrosshairVelocityFactor;
 	float CrosshairInAirFactor;
+	float CrosshairAimFactor;
+	float CrosshairShootingFactor;
+
+	FHUDPackage HUDPackage;
 
 	FVector HitTarget;
 
@@ -86,4 +91,15 @@ private:
 	float ZoomInterpSpeed = 20.f;
 
 	void InterpFOV(float DeltaTime);
+
+	/*
+	* Automatic fire
+	*/
+
+	FTimerHandle FireTimer;
+
+	bool bCanFire = true;
+	void StartFireTimer();
+	void FireTimerFinished();
+
 };

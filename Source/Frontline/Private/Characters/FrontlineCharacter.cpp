@@ -19,6 +19,10 @@
 #include "FrontlineComponents/CombatComponent.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Characters/FrontlineAnimInstance.h"
+#include "Frontline/Frontline.h"
+#include "PlayerController/FrontlinePlayerController.h"
+#include "GameMode/FrontlineGameMode.h"
+#include "TimerManager.h"
 
 
 AFrontlineCharacter::AFrontlineCharacter()	
@@ -51,18 +55,52 @@ AFrontlineCharacter::AFrontlineCharacter()
 	GetCharacterMovement()->NavAgentProps.bCanCrouch = true;
 
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
+	GetMesh()->SetCollisionObjectType(ECC_SkeletalMesh);
 	GetMesh()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
+	GetMesh()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Visibility, ECollisionResponse::ECR_Block);
 
 	TurningInPlace = ETurningInPlace::ETIP_NotTurning;
 	SetNetUpdateFrequency(66.f);
 	SetMinNetUpdateFrequency(33.f);
+
+	DissolveTimeline = CreateDefaultSubobject<UTimelineComponent>(TEXT("DissolveTimelineComponent"));
 }
+
+void AFrontlineCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+
+	if (APlayerController* PlayerController = Cast<APlayerController>(Controller))
+	{
+		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
+		{
+			Subsystem->AddMappingContext(DefaultMappingContext, 0);
+		}
+	}
+	UpdateHUDHealth();
+	if (HasAuthority())
+	{
+		OnTakeAnyDamage.AddDynamic(this, &AFrontlineCharacter::ReceiveDamage);
+	}
+}
+
+
 
 void AFrontlineCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME_CONDITION(AFrontlineCharacter, OverlappingWeapon, COND_OwnerOnly);
+	DOREPLIFETIME(AFrontlineCharacter, Health);
+}
+
+
+void AFrontlineCharacter::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+
+	AimOffset(DeltaTime);
+	HideCharacterIfCameraClose();
 }
 
 void AFrontlineCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -89,6 +127,42 @@ void AFrontlineCharacter::PostInitializeComponents()
 	if (Combat)
 	{
 		Combat->Character = this;
+	}
+}
+
+void AFrontlineCharacter::HideCharacterIfCameraClose()
+{
+	if (!IsLocallyControlled()) return;
+	if ((FollowCamera->GetComponentLocation() - GetActorLocation()).Size() < CameraThreshold)
+	{
+		GetMesh()->SetVisibility(false);
+		if (Combat && Combat->EquippedWeapon && Combat->EquippedWeapon->GetWeaponMesh())
+		{
+			Combat->EquippedWeapon->GetWeaponMesh()->bOwnerNoSee = true;
+		}
+	}
+	else
+	{
+		GetMesh()->SetVisibility(true);
+		if (Combat && Combat->EquippedWeapon && Combat->EquippedWeapon->GetWeaponMesh())
+		{
+			Combat->EquippedWeapon->GetWeaponMesh()->bOwnerNoSee = false;
+		}
+	}
+}
+
+void AFrontlineCharacter::OnRep_Health()
+{
+	UpdateHUDHealth();
+	PlayHitReactMontage();
+}
+
+void AFrontlineCharacter::UpdateHUDHealth()
+{
+	FrontlinePlayerController = FrontlinePlayerController == nullptr ? Cast<AFrontlinePlayerController>(Controller) : FrontlinePlayerController;
+	if (FrontlinePlayerController)
+	{
+		FrontlinePlayerController->SetHUDHealth(Health, MaxHealth);
 	}
 }
 
@@ -146,25 +220,201 @@ void AFrontlineCharacter::OnRep_OverlappingWeapon(AWeapon* LastWeapon)
 	}
 }
 
-
-void AFrontlineCharacter::BeginPlay()
+void AFrontlineCharacter::Elim()
 {
-	Super::BeginPlay();
-
-	if (APlayerController* PlayerController = Cast<APlayerController>(Controller))
+	if (Combat && Combat->EquippedWeapon)
 	{
-		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
+		Combat->EquippedWeapon->Dropped();
+	}
+
+	MulticastElim();
+
+	GetWorldTimerManager().SetTimer(
+		ElimTimer,
+		this,
+		&AFrontlineCharacter::ElimTimerFinished,
+		ElimDelay);
+}
+void AFrontlineCharacter::MulticastElim_Implementation()
+{
+	bElimmed = true;
+	PlayElimMontage();
+
+	// Start dissolve effect 
+	if (DissolveMaterialInstance1 && DissolveMaterialInstance2)
+	{
+		DynamicDissolveMaterialInstance1 = UMaterialInstanceDynamic::Create(DissolveMaterialInstance1, this);
+		DynamicDissolveMaterialInstance2 = UMaterialInstanceDynamic::Create(DissolveMaterialInstance2, this);
+
+		GetMesh()->SetMaterial(0, DynamicDissolveMaterialInstance1);
+		GetMesh()->SetMaterial(1, DynamicDissolveMaterialInstance2);
+
+		DynamicDissolveMaterialInstance1->SetScalarParameterValue(TEXT("Dissolve"), -0.55f);
+		DynamicDissolveMaterialInstance1->SetScalarParameterValue(TEXT("Glow"), 200.f);
+		
+		DynamicDissolveMaterialInstance2->SetScalarParameterValue(TEXT("Dissolve"), -0.55f);
+		DynamicDissolveMaterialInstance2->SetScalarParameterValue(TEXT("Glow"), 200.f);
+	}
+	StartDissolve();
+
+	// Disable character movement and input
+	GetCharacterMovement()->DisableMovement();
+	GetCharacterMovement()->StopMovementImmediately();
+	if (FrontlinePlayerController)
+	{
+		DisableInput(FrontlinePlayerController);
+	}
+	// Disable collision
+	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+}
+
+void AFrontlineCharacter::UpdateDissolveMaterial(float DissolveValue)
+{
+	if (DynamicDissolveMaterialInstance1 && DynamicDissolveMaterialInstance2)
+	{
+		DynamicDissolveMaterialInstance1->SetScalarParameterValue(TEXT("Dissolve"), DissolveValue);
+		DynamicDissolveMaterialInstance2->SetScalarParameterValue(TEXT("Dissolve"), DissolveValue);
+	}
+}
+
+void AFrontlineCharacter::StartDissolve()
+{
+	DissolveTrack.BindDynamic(this, &AFrontlineCharacter::UpdateDissolveMaterial);
+	if (DissolveCurve && DissolveTimeline)
+	{
+		DissolveTimeline->AddInterpFloat(DissolveCurve, DissolveTrack);
+		DissolveTimeline->Play();
+	}
+}
+
+void AFrontlineCharacter::ElimTimerFinished()
+{
+	AFrontlineGameMode* FrontlineGameMode = GetWorld()->GetAuthGameMode<AFrontlineGameMode>();
+	if (FrontlineGameMode)
+	{
+		FrontlineGameMode->RequestRespawn(this, Controller);
+	}
+}
+
+void AFrontlineCharacter::PlayElimMontage()
+{
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && ElimMontage)
+	{
+
+		AnimInstance->Montage_Play(ElimMontage);
+	}
+}
+
+
+void AFrontlineCharacter::PlayHitReactMontage()
+{
+	if (Combat == nullptr || Combat->EquippedWeapon == nullptr || bElimmed) return;
+
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && HitReactMontage)
+	{
+		AnimInstance->Montage_Play(HitReactMontage);
+		FName SectionName("FromFront");
+		AnimInstance->Montage_JumpToSection(SectionName);
+	}
+}
+/// <summary>
+/// Server function to recieve damage. This changes the Health, which is a replicated variable, and causes the 
+/// On_RepHealth Rep notify function to be called on each client
+/// </summary>
+/// <param name="DamagedActor">: Actor that is damaged</param>
+/// <param name="Damage">: Damage amount</param>
+/// <param name="DamageType">: Damage type</param>
+/// <param name="InstigatorController">: Controller who instigated the damage(Player)</param>
+/// <param name="DamageCauser">: Actor who caused the damage</param>
+void AFrontlineCharacter::ReceiveDamage(AActor* DamagedActor, float Damage, const UDamageType* DamageType, AController* InstigatorController, AActor* DamageCauser)
+{
+	Health = FMath::Clamp(Health - Damage, 0.f, MaxHealth);
+	UpdateHUDHealth();
+	PlayHitReactMontage();
+
+	if (Health == 0.f)
+	{
+		AFrontlineGameMode* FrontlineGameMode = GetWorld()->GetAuthGameMode<AFrontlineGameMode>();
+		if (FrontlineGameMode)
 		{
-			Subsystem->AddMappingContext(DefaultMappingContext, 0);
+			FrontlinePlayerController = FrontlinePlayerController == nullptr ? Cast<AFrontlinePlayerController>(Controller) : FrontlinePlayerController;
+			AFrontlinePlayerController* AttackerController = Cast<AFrontlinePlayerController>(InstigatorController);
+			FrontlineGameMode->PlayerEliminated(this, FrontlinePlayerController, AttackerController);
 		}
 	}
 }
 
-void AFrontlineCharacter::Tick(float DeltaTime)
+void AFrontlineCharacter::AimOffset(float DeltaTime)
 {
-	Super::Tick(DeltaTime);
+	if (Combat && Combat->EquippedWeapon == nullptr) return;
 
-	AimOffset(DeltaTime);
+	float GroundSpeed = UKismetMathLibrary::VSizeXY(GetVelocity());
+
+	bool bIsInAir = GetCharacterMovement()->IsFalling();
+
+	// if standing still and not jumping
+	if (GroundSpeed == 0.f && !bIsInAir)
+	{
+		FRotator CurrentAimRotation = FRotator(0.f, GetBaseAimRotation().Yaw, 0.f);
+		FRotator DeltaAimRotation = UKismetMathLibrary::NormalizedDeltaRotator(CurrentAimRotation, StartingAimRotation);
+		AO_Yaw = DeltaAimRotation.Yaw;
+		if (TurningInPlace == ETurningInPlace::ETIP_NotTurning)
+		{
+			InterpAO_Yaw = AO_Yaw;
+		}
+		bUseControllerRotationYaw = true;
+		TurnInPlace(DeltaTime);
+	}
+	// if running or jumping
+	if (GroundSpeed > 0.f || bIsInAir)
+	{
+		StartingAimRotation = FRotator(0.f, GetBaseAimRotation().Yaw, 0.f);
+		AO_Yaw = 0.f;
+		bUseControllerRotationYaw = true;
+	}
+
+	AO_Pitch = GetBaseAimRotation().Pitch;
+	if (AO_Pitch > 90.f && !IsLocallyControlled())
+	{
+		// Map pitch from [270, 360) to [-90, 0)
+		FVector2D InRange(270.f, 360.f);
+		FVector2D OutRange(-90.f, 0.f);
+		AO_Pitch = FMath::GetMappedRangeValueClamped(InRange, OutRange, AO_Pitch);
+		TurningInPlace = ETurningInPlace::ETIP_NotTurning;
+	}
+}
+
+void AFrontlineCharacter::TurnInPlace(float DeltaTime)
+{
+	if (AO_Yaw > 90.f)
+	{
+		TurningInPlace = ETurningInPlace::ETIP_Right;
+	}
+	else if (AO_Yaw < -90.f)
+	{
+		TurningInPlace = ETurningInPlace::ETIP_Left;
+	}
+	if (TurningInPlace != ETurningInPlace::ETIP_NotTurning)
+	{
+		InterpAO_Yaw = FMath::FInterpTo(InterpAO_Yaw, 0.f, DeltaTime, 10.f);
+		AO_Yaw = InterpAO_Yaw;
+		if (FMath::Abs(AO_Yaw) < 15.f)
+		{
+			TurningInPlace = ETurningInPlace::ETIP_NotTurning;
+			StartingAimRotation = FRotator(0.f, GetBaseAimRotation().Yaw, 0.f);
+		}
+	}
+}
+
+void AFrontlineCharacter::ServerEquip_Implementation()
+{
+	if (Combat)
+	{
+		Combat->EquipWeapon(OverlappingWeapon);
+	}
 }
 
 void AFrontlineCharacter::Move(const FInputActionValue& Value)
@@ -257,75 +507,5 @@ void AFrontlineCharacter::PlayFireMontage(bool bAiming)
 		FName SectionName;
 		SectionName = bAiming ? FName("RifleHip") : FName("RifleIronsights");
 		AnimInstance->Montage_JumpToSection(SectionName);
-	}
-}
-
-void AFrontlineCharacter::AimOffset(float DeltaTime)
-{
-	if (Combat && Combat->EquippedWeapon == nullptr) return;
-
-	float GroundSpeed = UKismetMathLibrary::VSizeXY(GetVelocity());
-
-	bool bIsInAir = GetCharacterMovement()->IsFalling();
-
-	// if standing still and not jumping
-	if (GroundSpeed == 0.f && !bIsInAir)
-	{
-		FRotator CurrentAimRotation = FRotator(0.f, GetBaseAimRotation().Yaw, 0.f);
-		FRotator DeltaAimRotation = UKismetMathLibrary::NormalizedDeltaRotator(CurrentAimRotation, StartingAimRotation);
-		AO_Yaw = DeltaAimRotation.Yaw;
-		if (TurningInPlace == ETurningInPlace::ETIP_NotTurning)
-		{
-			InterpAO_Yaw = AO_Yaw;
-		}
-		bUseControllerRotationYaw = true;
-		TurnInPlace(DeltaTime);
-	}
-	// if running or jumping
-	if (GroundSpeed > 0.f || bIsInAir)
-	{
-		StartingAimRotation = FRotator(0.f, GetBaseAimRotation().Yaw, 0.f);
-		AO_Yaw = 0.f;
-		bUseControllerRotationYaw = true;
-	}
-
-	AO_Pitch = GetBaseAimRotation().Pitch;
-	if (AO_Pitch > 90.f && !IsLocallyControlled())
-	{
-		// Map pitch from [270, 360) to [-90, 0)
-		FVector2D InRange(270.f, 360.f);
-		FVector2D OutRange(-90.f, 0.f);
-		AO_Pitch = FMath::GetMappedRangeValueClamped(InRange, OutRange, AO_Pitch);
-		TurningInPlace = ETurningInPlace::ETIP_NotTurning;
-	}
-}
-
-void AFrontlineCharacter::TurnInPlace(float DeltaTime)
-{
-	if (AO_Yaw > 90.f)
-	{
-		TurningInPlace = ETurningInPlace::ETIP_Right;
-	}
-	else if (AO_Yaw < -90.f)
-	{
-		TurningInPlace = ETurningInPlace::ETIP_Left;
-	}
-	if (TurningInPlace != ETurningInPlace::ETIP_NotTurning)
-	{
-		InterpAO_Yaw = FMath::FInterpTo(InterpAO_Yaw, 0.f, DeltaTime, 10.f);
-		AO_Yaw = InterpAO_Yaw;
-		if (FMath::Abs(AO_Yaw) < 15.f)
-		{
-			TurningInPlace = ETurningInPlace::ETIP_NotTurning;
-			StartingAimRotation = FRotator(0.f, GetBaseAimRotation().Yaw, 0.f);
-		}
-	}
-}
-
-void AFrontlineCharacter::ServerEquip_Implementation()
-{
-	if (Combat)
-	{
-		Combat->EquipWeapon(OverlappingWeapon);
 	}
 }
