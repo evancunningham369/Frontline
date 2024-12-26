@@ -23,6 +23,8 @@
 #include "PlayerController/FrontlinePlayerController.h"
 #include "GameMode/FrontlineGameMode.h"
 #include "TimerManager.h"
+#include "PlayerState/FrontlinePlayerState.h"
+#include "Weapon/WeaponTypes.h"
 
 
 AFrontlineCharacter::AFrontlineCharacter()	
@@ -70,9 +72,9 @@ void AFrontlineCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 
-	if (APlayerController* PlayerController = Cast<APlayerController>(Controller))
+	if (const ULocalPlayer* Player = (GEngine && GetWorld()) ? GEngine->GetFirstGamePlayer(GetWorld()) : nullptr)
 	{
-		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
+		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(Player))
 		{
 			Subsystem->AddMappingContext(DefaultMappingContext, 0);
 		}
@@ -84,16 +86,14 @@ void AFrontlineCharacter::BeginPlay()
 	}
 }
 
-
-
 void AFrontlineCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME_CONDITION(AFrontlineCharacter, OverlappingWeapon, COND_OwnerOnly);
 	DOREPLIFETIME(AFrontlineCharacter, Health);
+	DOREPLIFETIME(AFrontlineCharacter, bDisableGameplay);
 }
-
 
 void AFrontlineCharacter::Tick(float DeltaTime)
 {
@@ -116,6 +116,8 @@ void AFrontlineCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInput
 		EnhancedInputComponent->BindAction(CrouchAction, ETriggerEvent::Started, this, &AFrontlineCharacter::CrouchButtonPressed);
 		EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Triggered, this, &AFrontlineCharacter::Aim);
 		EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Triggered, this, &AFrontlineCharacter::Fire);
+		EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Completed, this, &AFrontlineCharacter::Fire);
+		EnhancedInputComponent->BindAction(ReloadAction, ETriggerEvent::Started, this, &AFrontlineCharacter::ReloadWeapon);
 	}
 
 }
@@ -208,6 +210,12 @@ FVector AFrontlineCharacter::GetHitTarget() const
 	return Combat->HitTarget;
 }
 
+ECombatState AFrontlineCharacter::GetCombatState() const
+{
+	if (Combat == nullptr) return ECombatState::ECS_MAX;
+	return Combat->CombatState;
+}
+
 void AFrontlineCharacter::OnRep_OverlappingWeapon(AWeapon* LastWeapon)
 {
 	if (OverlappingWeapon)
@@ -235,8 +243,14 @@ void AFrontlineCharacter::Elim()
 		&AFrontlineCharacter::ElimTimerFinished,
 		ElimDelay);
 }
+
 void AFrontlineCharacter::MulticastElim_Implementation()
 {
+
+	if (FrontlinePlayerController)
+	{
+		FrontlinePlayerController->SetHUDWeaponAmmo(0);
+	}
 	bElimmed = true;
 	PlayElimMontage();
 
@@ -260,6 +274,11 @@ void AFrontlineCharacter::MulticastElim_Implementation()
 	// Disable character movement and input
 	GetCharacterMovement()->DisableMovement();
 	GetCharacterMovement()->StopMovementImmediately();
+	bDisableGameplay = true;
+	if (Combat)
+	{
+		Combat->FireWeapon(false);
+	}
 	if (FrontlinePlayerController)
 	{
 		DisableInput(FrontlinePlayerController);
@@ -267,6 +286,11 @@ void AFrontlineCharacter::MulticastElim_Implementation()
 	// Disable collision
 	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	bool bHideSniperScope = IsLocallyControlled() && Combat && Combat->bAiming && Combat->EquippedWeapon->GetWeaponType() == EWeaponType::EWT_SniperRifle;
+	if (bHideSniperScope)
+	{
+		ShowSniperScopeWidget(false);
+	}
 }
 
 void AFrontlineCharacter::UpdateDissolveMaterial(float DissolveValue)
@@ -306,7 +330,6 @@ void AFrontlineCharacter::PlayElimMontage()
 		AnimInstance->Montage_Play(ElimMontage);
 	}
 }
-
 
 void AFrontlineCharacter::PlayHitReactMontage()
 {
@@ -349,6 +372,12 @@ void AFrontlineCharacter::ReceiveDamage(AActor* DamagedActor, float Damage, cons
 
 void AFrontlineCharacter::AimOffset(float DeltaTime)
 {
+	if (bDisableGameplay)
+	{
+		bUseControllerRotationYaw = false;
+		TurningInPlace = ETurningInPlace::ETIP_NotTurning;
+		return;
+	}
 	if (Combat && Combat->EquippedWeapon == nullptr) return;
 
 	float GroundSpeed = UKismetMathLibrary::VSizeXY(GetVelocity());
@@ -419,6 +448,7 @@ void AFrontlineCharacter::ServerEquip_Implementation()
 
 void AFrontlineCharacter::Move(const FInputActionValue& Value)
 {
+	if (bDisableGameplay) return;
 	const FVector2D MovementVector = Value.Get<FVector2D>();
 
 	const FRotator Rotation = GetControlRotation();
@@ -442,6 +472,7 @@ void AFrontlineCharacter::Look(const FInputActionValue& Value)
 
 void AFrontlineCharacter::Jump()
 {
+	if (bDisableGameplay) return;
 
 	if (bIsCrouched)
 	{
@@ -467,6 +498,8 @@ void AFrontlineCharacter::CrouchButtonPressed()
 
 void AFrontlineCharacter::Equip()
 {
+	if (bDisableGameplay) return;
+
 	if (Combat)
 	{
 		if (HasAuthority())
@@ -480,8 +513,20 @@ void AFrontlineCharacter::Equip()
 	}
 }
 
+void AFrontlineCharacter::ReloadWeapon()
+{
+	if (bDisableGameplay) return;
+
+	if (Combat)
+	{
+		Combat->Reload();
+	}
+}
+
 void AFrontlineCharacter::Aim(const FInputActionValue& Value)
 {
+	if (bDisableGameplay) return;
+
 	if (Combat)
 	{
 		Combat->SetAiming(Value.Get<bool>());
@@ -490,6 +535,8 @@ void AFrontlineCharacter::Aim(const FInputActionValue& Value)
 
 void AFrontlineCharacter::Fire(const FInputActionValue& Value)
 {
+	if (bDisableGameplay) return;
+
 	if (Combat)
 	{
 		Combat->FireWeapon(Value.Get<bool>());
@@ -506,6 +553,45 @@ void AFrontlineCharacter::PlayFireMontage(bool bAiming)
 		AnimInstance->Montage_Play(FireWeaponMontage);
 		FName SectionName;
 		SectionName = bAiming ? FName("RifleHip") : FName("RifleIronsights");
+		AnimInstance->Montage_JumpToSection(SectionName);
+	}
+}
+
+void AFrontlineCharacter::PlayReloadMontage()
+{
+	if (Combat == nullptr || Combat->EquippedWeapon == nullptr) return;
+
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && ReloadMontage)
+	{
+		AnimInstance->Montage_Play(ReloadMontage);
+		FName SectionName;
+		
+		switch (Combat->EquippedWeapon->GetWeaponType())
+		{
+		case EWeaponType::EWT_AssaultRifle:
+			SectionName = FName("Rifle");
+			break;
+		case EWeaponType::EWT_RocketLauncher:
+			SectionName = FName("RocketLauncher");
+			break;
+		case EWeaponType::EWT_Pistol:
+			SectionName = FName("Pistol");
+			break;
+		case EWeaponType::EWT_SubmachineGun:
+			SectionName = FName("Pistol");
+			break;
+		case EWeaponType::EWT_Shotgun:
+			SectionName = FName("Shotgun");
+			break;
+		case EWeaponType::EWT_SniperRifle:
+			SectionName = FName("SniperRifle");
+			break;
+		case EWeaponType::EWT_GrenadeLauncher:
+			SectionName = FName("GrenadeLauncher");
+			break;
+		}
+
 		AnimInstance->Montage_JumpToSection(SectionName);
 	}
 }

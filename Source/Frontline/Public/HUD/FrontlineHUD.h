@@ -40,10 +40,23 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Player Stats")
 	TSubclassOf<class UUserWidget> CharacterOverlayClass;
 
+	UPROPERTY()
 	class UCharacterOverlay* CharacterOverlay;
+
+	UPROPERTY(EditAnywhere, Category = "Announcements")
+	TSubclassOf<class UUserWidget> AnnouncementClass;
+
+	UPROPERTY()
+	class UAnnouncement* Announcement;
+
+	void AddAnnouncement();
+
+	void AddCharacterOverlay();
+
+	void SetCharacterOverlayVisibility(bool isVisible);
+	void SetAnnouncementOverlayVisibility(bool isVisible);
 protected:
 	virtual void BeginPlay() override;
-	void AddCharacterOverlay();
 private:
 	FHUDPackage HUDPackage;
 	void DrawCrosshair(UTexture2D* Texture, FVector2D ViewportCenter, FVector2D Spread, FLinearColor CrosshairColor);

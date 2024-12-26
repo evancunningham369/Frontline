@@ -4,12 +4,35 @@
 #include "HUD/FrontlineHUD.h"
 #include "GameFramework/PlayerController.h"
 #include "HUD/CharacterOverlay.h"
+#include "PlayerController/FrontlinePlayerController.h"
+#include "HUD/Announcement.h"
 
 void AFrontlineHUD::BeginPlay()
 {
 	Super::BeginPlay();
 
 	AddCharacterOverlay();
+	SetCharacterOverlayVisibility(false);
+}
+
+void AFrontlineHUD::AddAnnouncement()
+{
+	UE_LOG(LogTemp, Warning, TEXT("Adding announcement"))
+	APlayerController* PlayerController = GetOwningPlayerController();
+	if (PlayerController && AnnouncementClass && Announcement == nullptr)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("valid announcement"))
+		Announcement = CreateWidget<UAnnouncement>(PlayerController, AnnouncementClass);
+		Announcement->AddToViewport();
+	}
+	else if(!PlayerController)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("invalid player controller"))
+	}
+	else if (!Announcement)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("invalid announcement"))
+	}
 }
 
 void AFrontlineHUD::AddCharacterOverlay()
@@ -19,7 +42,23 @@ void AFrontlineHUD::AddCharacterOverlay()
 	{
 		CharacterOverlay = CreateWidget<UCharacterOverlay>(PlayerController, CharacterOverlayClass);
 		CharacterOverlay->AddToViewport();
+
+		if (AFrontlinePlayerController* FrontlinePlayerController = Cast<AFrontlinePlayerController>(PlayerController))
+		{
+			FrontlinePlayerController->SetHUDScore(0.f);
+			FrontlinePlayerController->SetHUDDefeats(0);
+		}
 	}
+}
+
+void AFrontlineHUD::SetCharacterOverlayVisibility(bool isVisible)
+{
+	CharacterOverlay->SetVisibility(isVisible ? ESlateVisibility::Visible : ESlateVisibility::Hidden);
+}
+
+void AFrontlineHUD::SetAnnouncementOverlayVisibility(bool isVisible)
+{
+	Announcement->SetVisibility(isVisible ? ESlateVisibility::Visible : ESlateVisibility::Hidden);
 }
 
 void AFrontlineHUD::DrawHUD()

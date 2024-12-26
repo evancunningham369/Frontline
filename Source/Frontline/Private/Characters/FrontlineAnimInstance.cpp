@@ -6,6 +6,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Weapon/Weapon.h"
+#include "Frontline/FrontlineTypes/CombatState.h"
 
 void UFrontlineAnimInstance::NativeInitializeAnimation()
 {
@@ -68,10 +69,13 @@ void UFrontlineAnimInstance::NativeUpdateAnimation(float DeltaTime)
 				RightHandRotation = FMath::RInterpTo(RightHandRotation, LookAtRotation, DeltaTime, 30.f);
 			}
 
-			/*FTransform MuzzleTipTransform = EquippedWeapon->GetWeaponMesh()->GetSocketTransform(FName("MuzzleFlash"), ERelativeTransformSpace::RTS_World);
+			FTransform MuzzleTipTransform = EquippedWeapon->GetWeaponMesh()->GetSocketTransform(FName("MuzzleFlash"), ERelativeTransformSpace::RTS_World);
 			FVector MuzzleX(FRotationMatrix(MuzzleTipTransform.GetRotation().Rotator()).GetUnitAxis(EAxis::X));
 			DrawDebugLine(GetWorld(), MuzzleTipTransform.GetLocation(), MuzzleTipTransform.GetLocation() + MuzzleX * 1000.f, FColor::Red);
-			DrawDebugLine(GetWorld(), MuzzleTipTransform.GetLocation(), FrontlineCharacter->GetHitTarget(), FColor::Orange);*/
+			DrawDebugLine(GetWorld(), MuzzleTipTransform.GetLocation(), FrontlineCharacter->GetHitTarget(), FColor::Orange);
 		}
+		bUseFABRIK = FrontlineCharacter->GetCombatState() != ECombatState::ECS_Reloading;
+		bUseAimOffsets = FrontlineCharacter->GetCombatState() != ECombatState::ECS_Reloading && !FrontlineCharacter->GetDisableGameplay();
+		bTransformRightHand = FrontlineCharacter->GetCombatState() != ECombatState::ECS_Reloading && !FrontlineCharacter->GetDisableGameplay();
 	}
 }

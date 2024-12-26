@@ -8,6 +8,7 @@
 #include "Frontline/FrontlineTypes/TurningInPlace.h"
 #include "Interfaces/InteractWithCrosshairsInterface.h"
 #include "Components/TimelineComponent.h"
+#include "Frontline/FrontlineTypes/CombatState.h"
 #include "FrontlineCharacter.generated.h"
 
 struct FInputActionValue;
@@ -40,6 +41,9 @@ class FRONTLINE_API AFrontlineCharacter : public ACharacter, public IInteractWit
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	UInputAction* FireAction;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+	UInputAction* ReloadAction;
 
 	UPROPERTY(VisibleAnywhere)
 	class USpringArmComponent* CameraBoom;
@@ -54,11 +58,21 @@ public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void PostInitializeComponents() override;
 	void PlayFireMontage(bool bAiming);
+	void PlayReloadMontage();
 	void PlayElimMontage();
 	void Elim();
 
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastElim();
+
+	UPROPERTY(Replicated)
+	bool bDisableGameplay = false;
+
+	UPROPERTY()
+	class AFrontlinePlayerState* FrontlinePlayerState;
+
+	UFUNCTION(BlueprintImplementableEvent)
+	void ShowSniperScopeWidget(bool bShowScope);
 
 protected: 
 	virtual void BeginPlay() override;
@@ -74,6 +88,8 @@ protected:
 
 	void Equip();
 
+	void ReloadWeapon();
+
 	void Aim(const FInputActionValue& Value);
 
 	void AimOffset(float DeltaTime);
@@ -86,6 +102,7 @@ protected:
 	void ReceiveDamage(AActor* DamagedActor, float Damage, const UDamageType* DamageType, class AController* InstigatorController, AActor* DamageCauser);
 
 	void UpdateHUDHealth();
+
 private:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
 	class UWidgetComponent* OverheadWidget;
@@ -96,7 +113,7 @@ private:
 	UFUNCTION()
 	void OnRep_OverlappingWeapon(AWeapon* LastWeapon);
 
-	UPROPERTY(VisibleAnywhere)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
 	class UCombatComponent* Combat;
 
 	UFUNCTION(Server, Reliable)
@@ -111,22 +128,30 @@ private:
 
 	void TurnInPlace(float DeltaTime);
 
+	/*
+		Animation Montages
+	*/
+
 	UPROPERTY(EditAnywhere, Category = "Combat")
 	class UAnimMontage* FireWeaponMontage;
 	
+	UPROPERTY(EditAnywhere, Category = "Combat")
+	UAnimMontage* ReloadMontage;
+
 	UPROPERTY(EditAnywhere, Category = "Combat")
 	UAnimMontage* HitReactMontage;
 
 	UPROPERTY(EditAnywhere, Category = "Combat")
 	UAnimMontage* ElimMontage;
+	
 
 	void HideCharacterIfCameraClose();
-
+	
 	UPROPERTY(EditAnywhere)
 	float CameraThreshold = 200.f;
 
 	/*
-		Max Health
+		Health
 	*/
 
 	UPROPERTY(EditAnywhere, Category = "Player Stats")
@@ -138,6 +163,7 @@ private:
 	UFUNCTION()
 	void OnRep_Health();
 
+	UPROPERTY()
 	class AFrontlinePlayerController* FrontlinePlayerController;
 
 	bool bElimmed = false;
@@ -190,4 +216,10 @@ public:
 	FVector GetHitTarget() const;
 	FORCEINLINE UCameraComponent* GetFollowCamera() const { return FollowCamera; }
 	FORCEINLINE bool IsElimmed() const { return bElimmed; }
+	FORCEINLINE float GetHealth() const { return Health; }
+	FORCEINLINE float GetMaxHealth() const { return MaxHealth; }
+	ECombatState GetCombatState() const;
+	FORCEINLINE UCombatComponent* GetCombat() const { return Combat; }
+	FORCEINLINE bool GetDisableGameplay() const { return bDisableGameplay; }
+	FORCEINLINE UAnimMontage* GetReloadMontage() const { return ReloadMontage; }
 };

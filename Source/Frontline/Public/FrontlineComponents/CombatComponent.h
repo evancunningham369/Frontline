@@ -5,9 +5,9 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include <HUD/FrontlineHUD.h>
+#include "Weapon/WeaponTypes.h"
+#include "Frontline/FrontlineTypes/CombatState.h"
 #include "CombatComponent.generated.h"
-
-#define TRACE_LENGTH 80000.f
 
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class FRONTLINE_API UCombatComponent : public UActorComponent
@@ -21,12 +21,19 @@ public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	void EquipWeapon(class AWeapon* WeaponToEquip);
+	void Reload();
+	void FireWeapon(bool bPressed);
+
+	UFUNCTION(BlueprintCallable)
+	void ShotgunShellReload();
+
+	void JumpToShotgunEnd();
+
 protected:
 	virtual void BeginPlay() override;
 
 	void SetAiming(bool bIsAiming);
 
-	void FireWeapon(bool bPressed);
 
 	UFUNCTION(Server, Reliable)
 	void ServerSetAiming(bool bIsAiming);
@@ -43,14 +50,28 @@ protected:
 	void TraceUnderCrosshairs(FHitResult& TraceHitResult);
 
 	void SetHUDCrosshairs(float DeltaTime);
+
+	UFUNCTION(Server, Reliable)
+	void ServerReload();
+
+	void HandleReload();
+
+	void StopReload();
+
+	int32 AmountToReload();
+
+	FTimerHandle TimerHandle_StopReload;
 private:
+	UPROPERTY()
 	class AFrontlineCharacter* Character;
+	UPROPERTY()
 	class AFrontlinePlayerController* Controller;
+	UPROPERTY()
 	class AFrontlineHUD* HUD;
 
 	UPROPERTY(ReplicatedUsing = OnRep_EquippedWeapon)
 	class AWeapon* EquippedWeapon;
-
+	
 	UPROPERTY(Replicated)
 	bool bAiming;
 
@@ -102,4 +123,45 @@ private:
 	void StartFireTimer();
 	void FireTimerFinished();
 
+	bool CanFire();
+
+	// Carried ammo for the currenlty equipped weapon
+	UPROPERTY(ReplicatedUsing=OnRep_CarriedAmmo)
+	int32 CarriedAmmo;
+
+	UFUNCTION()
+	void OnRep_CarriedAmmo();
+
+	TMap<EWeaponType, int32> CarriedAmmoMap;
+
+	UPROPERTY(EditAnywhere)
+	int32 StartingARAmmo = 0;
+	
+	UPROPERTY(EditAnywhere)
+	int32 StartingRocketAmmo = 0;
+	
+	UPROPERTY(EditAnywhere)
+	int32 StartingPistolAmmo = 0;
+	
+	UPROPERTY(EditAnywhere)
+	int32 StartingSMGAmmo = 0;
+	
+	UPROPERTY(EditAnywhere)
+	int32 StartingShotgunAmmo = 0;
+	
+	UPROPERTY(EditAnywhere)
+	int32 StartingSniperAmmo = 0;
+	
+	UPROPERTY(EditAnywhere)
+	int32 StartingGrenadeLauncherAmmo = 0;
+
+	void InitializeCarriedAmmo();
+
+	UPROPERTY(ReplicatedUsing = OnRep_CombatState)
+	ECombatState CombatState = ECombatState::ECS_Unoccupied;
+
+	UFUNCTION()
+	void OnRep_CombatState();
+	void UpdateAmmoValues();
+	void UpdateShotgunAmmoValues();
 };
